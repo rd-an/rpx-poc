@@ -1,5 +1,6 @@
 <script setup>
 import { computed, ref } from "vue";
+import { exportContextAware, exportFlatCSV, exportMultiSheetExcel } from "../utils/exportUtils";
 
 const props = defineProps({
   osGroups: {
@@ -87,15 +88,43 @@ const openDeviceDetail = (hostname) => {
   selectedDeviceHost.value = hostname;
   layer.value = 3;
 };
+
+const handleExport1 = () => {
+  exportContextAware({
+    layer: layer.value,
+    secondLayerMode: secondLayerMode.value,
+    selectedOs: selectedOs.value,
+    selectedKb: selectedKb.value,
+    selectedDevice: selectedDevice.value,
+    osSummaries: osSummaries.value,
+    kbRows: kbRows.value,
+    unpatchedDeviceRows: unpatchedDeviceRows.value
+  });
+};
+
+const handleExport2 = () => {
+  exportFlatCSV(props.osGroups);
+};
+
+const handleExport3 = () => {
+  exportMultiSheetExcel(props.osGroups, osSummaries.value);
+};
 </script>
 
 <template>
   <div class="px-6 py-4">
-    <header class="mb-4 rounded border border-[var(--border-main)] bg-white p-4">
-      <h2 class="text-[18px] font-semibold text-[#3f4b58]">KB 安裝稽核列表</h2>
-      <p class="mt-2 text-[13px] leading-6 text-[#667384]">
-        三層式檢視：第 1 層 OS 分類匯總，第 2 層 KB 編號清單或缺漏安裝清單，第 3 層詳細報表。
-      </p>
+    <header class="mb-4 flex flex-col items-start justify-between gap-4 rounded border border-[var(--border-main)] bg-white p-4 md:flex-row md:items-center">
+      <div>
+        <h2 class="text-[18px] font-semibold text-[#3f4b58]">KB 安裝稽核列表</h2>
+        <p class="mt-2 text-[13px] leading-6 text-[#667384]">
+          三層式檢視：第 1 層 OS 分類匯總，第 2 層 KB 編號清單或缺漏安裝清單，第 3 層詳細報表。
+        </p>
+      </div>
+      <div class="flex shrink-0 flex-wrap items-center gap-2">
+        <button class="h-8 rounded bg-[var(--btn-blue)] px-4 text-[12px] font-semibold text-white transition hover:opacity-90" @click="handleExport1">方案一：當前視圖 (CSV)</button>
+        <button class="h-8 rounded bg-[var(--btn-green)] px-4 text-[12px] font-semibold text-white transition hover:opacity-90" @click="handleExport2">方案二：總表攤平 (CSV)</button>
+        <button class="h-8 rounded bg-[var(--btn-pink)] px-4 text-[12px] font-semibold text-white transition hover:opacity-90" @click="handleExport3">方案三：多頁籤報表 (Excel)</button>
+      </div>
     </header>
 
     <section v-if="layer === 1" class="overflow-hidden rounded border border-[var(--border-main)] bg-white">
