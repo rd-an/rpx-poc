@@ -25,8 +25,8 @@ const props = defineProps({
 });
 
 const emit = defineEmits(["close", "select-view"]);
-const softwareExpanded = ref(true);
-const weaknessExpanded = ref(false);
+const softwareExpanded = ref(false);
+const weaknessExpanded = ref(true);
 
 const selectView = (view) => {
   if (!view) return;

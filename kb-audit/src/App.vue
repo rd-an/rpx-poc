@@ -10,7 +10,7 @@ import { installStatsRows, kbAuditOsGroups, sidebarSections, softwareMenu, tabs,
 
 const sidebarOpen = ref(false);
 const total = computed(() => 1267);
-const currentView = ref("install-stats");
+const currentView = ref("kb-audit");
 
 const onSelectView = (view) => {
   currentView.value = view;
