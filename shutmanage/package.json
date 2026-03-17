@@ -1,0 +1,24 @@
+{
+  "name": "shutmanage-poc",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start": "vite preview --host --open"
+  },
+  "dependencies": {
+    "html2canvas": "^1.4.1",
+    "jspdf": "^2.5.2",
+    "vue": "^3.5.13",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.15",
+    "@vitejs/plugin-vue": "^5.2.1",
+    "tailwindcss": "^4.0.15",
+    "vite": "^6.1.0"
+  }
+}
