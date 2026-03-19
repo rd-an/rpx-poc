@@ -147,6 +147,7 @@ const scopePreviewRows = computed(() =>
 );
 
 const currentScopeDescription = computed(() => summarizeScopeCriteria(activeScope.value?.criteria));
+const isScopeManagerView = computed(() => currentView.value === "scope-manager");
 
 const canSaveScope = computed(() => {
   if (!scopeDraftName.value.trim()) return false;
@@ -217,6 +218,7 @@ const removeScope = (scopeId) => {
 <template>
   <div class="min-h-screen bg-[var(--page-bg)] text-[var(--text-main)]">
     <AppSidebar
+      v-if="!isScopeManagerView"
       :sections="sidebarSections"
       :nav-items="navItems"
       :sidebar-open="sidebarOpen"
@@ -225,10 +227,13 @@ const removeScope = (scopeId) => {
       @select-view="setCurrentView"
     />
 
-    <div class="md:ml-[248px]">
+    <div :class="isScopeManagerView ? '' : 'md:ml-[248px]'">
       <main class="min-h-screen p-3 md:p-2">
-        <section class="min-h-[calc(100vh-16px)] border border-[var(--border-main)] bg-[var(--surface)] shadow-[var(--shadow-soft)]">
-          <header class="flex items-center border-b border-[var(--border-main)] p-3 md:hidden">
+        <section
+          class="min-h-[calc(100vh-16px)] border border-[var(--border-main)] bg-[var(--surface)] shadow-[var(--shadow-soft)]"
+          :class="isScopeManagerView ? 'scope-workspace-shell overflow-hidden' : ''"
+        >
+          <header v-if="!isScopeManagerView" class="flex items-center border-b border-[var(--border-main)] p-3 md:hidden">
             <button
               class="rounded border border-[var(--border-main)] bg-white px-3 py-1 text-[13px]"
               @click="sidebarOpen = true"
@@ -238,6 +243,7 @@ const removeScope = (scopeId) => {
           </header>
 
           <FilterToolbar
+            v-if="!isScopeManagerView"
             :filters="filters"
             :saved-scopes="savedScopes"
             :options="options"
@@ -259,15 +265,21 @@ const removeScope = (scopeId) => {
             v-else-if="currentView === 'scope-manager'"
             :saved-scopes="savedScopes"
             :filters="filters"
+            :options="options"
+            :active-scope-description="currentScopeDescription"
             :scope-draft-name="scopeDraftName"
             :scope-draft-description="scopeDraftDescription"
             :preview-rows="scopePreviewRows"
             :can-save-scope="canSaveScope"
+            :nav-items="navItems"
             @update-draft-name="scopeDraftName = $event"
             @update-draft-description="scopeDraftDescription = $event"
+            @update-filter="updateFilter"
+            @reset-filters="resetFilters"
             @save-scope="saveScope"
             @apply-scope="applyScope"
             @remove-scope="removeScope"
+            @select-view="setCurrentView"
           />
 
           <ReportsView
