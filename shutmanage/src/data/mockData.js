@@ -26,10 +26,10 @@ export const initialFilters = {
 };
 
 export const defaultPolicy = {
-  workStart: "08:00",
-  workEnd: "18:00",
-  nightStart: "21:00",
-  nightEnd: "02:00"
+  normalShutdownStart: "17:00",
+  normalShutdownEnd: "19:00",
+  overtimeShutdownStart: "19:00",
+  overtimeShutdownEnd: "21:00"
 };
 
 export const defaultSavedScopes = [
@@ -43,6 +43,7 @@ export const defaultSavedScopes = [
     id: "admin-office",
     name: "行政白班設備",
     description: "追蹤行政大樓白班辦公設備的下班關機落實情形。",
+    excludeFromShutdownPolicy: false,
     criteria: {
       site: "行政大樓",
       attribute: "行政文書",
@@ -53,9 +54,20 @@ export const defaultSavedScopes = [
     id: "outpatient-nursing",
     name: "門診護理站",
     description: "關注門診護理站與批價櫃檯電腦是否於下班後妥善關機。",
+    excludeFromShutdownPolicy: false,
     criteria: {
       department: "護理部",
       groupName: "門診護理群組"
+    }
+  },
+  {
+    id: "icu-exempt",
+    name: "ICU 特殊設備",
+    description: "住院重症設備屬於政策例外群組，不納入一般關機 KPI。",
+    excludeFromShutdownPolicy: true,
+    criteria: {
+      department: "加護病房",
+      groupName: "ICU 特殊設備"
     }
   }
 ];
@@ -131,7 +143,7 @@ export const deviceRecords = [
     bootAt: "2026-03-16 07:56",
     shutdownAt: "2026-03-16 21:34",
     triggeredShutdownAt: "",
-    notes: "晚間門診延後結束，屬加班後關機。"
+    notes: "晚間門診結束後才關機，已超過截止時間。"
   },
   {
     id: "pc-005",

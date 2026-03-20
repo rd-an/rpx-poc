@@ -22,7 +22,10 @@ import {
   deriveDeviceStatus,
   getUniqueOptions,
   normalizeFilters,
-  summarizeScopeCriteria
+  normalizePolicy,
+  summarizePolicyRules,
+  summarizeScopeCriteria,
+  validatePolicy
 } from "./utils/reportUtils";
 
 const STORAGE_KEYS = {
@@ -42,13 +45,28 @@ const loadState = (key, fallback) => {
   }
 };
 
+const normalizeSavedScopes = (scopes) => {
+  if (!Array.isArray(scopes)) return defaultSavedScopes;
+
+  return scopes.map((scope) => ({
+    ...scope,
+    criteria: scope.criteria || {},
+    excludeFromShutdownPolicy: Boolean(scope.excludeFromShutdownPolicy)
+  }));
+};
+
 const sidebarOpen = ref(false);
 const currentView = ref("overview");
 const filters = ref(normalizeFilters(loadState(STORAGE_KEYS.filters, initialFilters)));
-const policy = ref(loadState(STORAGE_KEYS.policy, defaultPolicy));
-const savedScopes = ref(loadState(STORAGE_KEYS.scopes, defaultSavedScopes));
+const policy = ref(normalizePolicy(loadState(STORAGE_KEYS.policy, defaultPolicy)));
+const savedScopes = ref(normalizeSavedScopes(loadState(STORAGE_KEYS.scopes, defaultSavedScopes)));
 const scopeDraftName = ref("");
 const scopeDraftDescription = ref("");
+const scopeDraftExcludeFromShutdownPolicy = ref(false);
+
+const policyValidation = computed(() => validatePolicy(policy.value));
+const effectivePolicy = computed(() => (policyValidation.value.isValid ? normalizePolicy(policy.value) : normalizePolicy(defaultPolicy)));
+const policySummary = computed(() => summarizePolicyRules(effectivePolicy.value));
 
 watch(
   filters,
@@ -63,7 +81,7 @@ watch(
 watch(
   policy,
   (value) => {
-    if (typeof window !== "undefined") {
+    if (typeof window !== "undefined" && validatePolicy(value).isValid) {
       window.localStorage.setItem(STORAGE_KEYS.policy, JSON.stringify(value));
     }
   },
@@ -99,7 +117,7 @@ const matchValue = (actual, expected) => !expected || actual === expected;
 const matchesScope = (device, scope) => {
   if (!scope) return true;
 
-  const { criteria } = scope;
+  const criteria = scope.criteria || {};
   return (
     matchValue(device.site, criteria.site) &&
     matchValue(device.department, criteria.department) &&
@@ -111,6 +129,18 @@ const matchesScope = (device, scope) => {
   );
 };
 
+const isExcludedByScope = (device) =>
+  savedScopes.value.some(
+    (scope) => scope.id !== "all" && scope.excludeFromShutdownPolicy && matchesScope(device, scope)
+  );
+
+const devicesWithScopeMeta = computed(() =>
+  deviceRecords.map((device) => ({
+    ...device,
+    excludedByGroup: isExcludedByScope(device)
+  }))
+);
+
 const matchesPowerClass = (device, powerClass) => {
   if (!powerClass) return true;
   if (powerClass === "shutdown-only") return device.canShutdown;
@@ -118,35 +148,70 @@ const matchesPowerClass = (device, powerClass) => {
   return true;
 };
 
-const filteredDevices = computed(() =>
-  deviceRecords.filter((device) => {
-    if (!matchesScope(device, activeScope.value)) return false;
-    if (!matchValue(device.site, filters.value.site)) return false;
-    if (!matchValue(device.department, filters.value.department)) return false;
-    if (!matchValue(device.unit, filters.value.unit)) return false;
-    if (!matchValue(device.area, filters.value.area)) return false;
-    if (!matchValue(device.attribute, filters.value.attribute)) return false;
-    if (!matchValue(device.groupName, filters.value.groupName)) return false;
-    if (!matchesPowerClass(device, filters.value.powerClass)) return false;
+const matchesCommonFilters = (device) => {
+  if (!matchValue(device.site, filters.value.site)) return false;
+  if (!matchValue(device.department, filters.value.department)) return false;
+  if (!matchValue(device.unit, filters.value.unit)) return false;
+  if (!matchValue(device.area, filters.value.area)) return false;
+  if (!matchValue(device.attribute, filters.value.attribute)) return false;
+  if (!matchValue(device.groupName, filters.value.groupName)) return false;
+  if (!matchesPowerClass(device, filters.value.powerClass)) return false;
+  return true;
+};
 
-    const status = deriveDeviceStatus(device, policy.value);
+const filteredDevices = computed(() =>
+  devicesWithScopeMeta.value.filter((device) => {
+    if (!matchesScope(device, activeScope.value)) return false;
+    if (!matchesCommonFilters(device)) return false;
+
+    const status = deriveDeviceStatus(device, effectivePolicy.value);
     return !filters.value.status || status === filters.value.status;
   })
 );
 
-const summaryCards = computed(() => buildSummaryCards(filteredDevices.value, policy.value));
-const reportSummary = computed(() => buildReportSummary(filteredDevices.value, policy.value));
-const departmentRows = computed(() => buildDepartmentRows(filteredDevices.value, policy.value));
-const focusRows = computed(() => filteredDevices.value.filter((device) => ["未關機", "已觸發關機"].includes(deriveDeviceStatus(device, policy.value))));
+const reportBaseDevices = computed(() => devicesWithScopeMeta.value.filter((device) => matchesCommonFilters(device)));
+
+const summaryCards = computed(() => buildSummaryCards(filteredDevices.value, effectivePolicy.value));
+const reportSummary = computed(() => buildReportSummary(reportBaseDevices.value, effectivePolicy.value));
+const departmentRows = computed(() => buildDepartmentRows(filteredDevices.value, effectivePolicy.value));
+const focusRows = computed(() => filteredDevices.value.filter((device) => ["未關機", "已觸發關機"].includes(deriveDeviceStatus(device, effectivePolicy.value))));
+
+const scopeSummaryRows = computed(() =>
+  savedScopes.value
+    .filter((scope) => scope.id !== "all")
+    .map((scope) => {
+      const rows = reportBaseDevices.value.filter((device) => matchesScope(device, scope));
+      const summary = buildReportSummary(rows, effectivePolicy.value);
+
+      return {
+        scopeId: scope.id,
+        scopeName: scope.name,
+        scopeDescription: scope.description,
+        excludeFromShutdownPolicy: scope.excludeFromShutdownPolicy,
+        total: rows.length,
+        managed: summary.managedDevices,
+        cannotShutdown: summary.cannotShutdown,
+        excludedByGroup: summary.excludedByGroup,
+        normalShutdown: summary.normalShutdown,
+        overtimeShutdown: summary.overtimeShutdown,
+        unshutdown: summary.unshutdown,
+        triggered: summary.triggered,
+        shutdownRate: summary.shutdownRate
+      };
+    })
+);
 
 const scopePreviewRows = computed(() =>
   filteredDevices.value.map((device) => ({
     ...device,
-    derivedStatus: deriveDeviceStatus(device, policy.value)
+    derivedStatus: deriveDeviceStatus(device, effectivePolicy.value)
   }))
 );
 
-const currentScopeDescription = computed(() => summarizeScopeCriteria(activeScope.value?.criteria));
+const currentScopeDescription = computed(() => {
+  const description = summarizeScopeCriteria(activeScope.value?.criteria);
+  return activeScope.value?.excludeFromShutdownPolicy ? `${description} / 群組旗標：不套用關機政策` : description;
+});
 const isScopeManagerView = computed(() => currentView.value === "scope-manager");
 
 const canSaveScope = computed(() => {
@@ -171,6 +236,10 @@ const resetFilters = () => {
 
 const updatePolicy = ({ field, value }) => {
   policy.value = { ...policy.value, [field]: value };
+};
+
+const resetPolicy = () => {
+  policy.value = { ...defaultPolicy };
 };
 
 const applyScope = (scopeId) => {
@@ -198,13 +267,15 @@ const saveScope = () => {
       id: scopeId,
       name: scopeDraftName.value.trim(),
       description: scopeDraftDescription.value.trim() || "由目前條件建立的自定義群組",
-      criteria: buildScopeCriteriaFromFilters()
+      criteria: buildScopeCriteriaFromFilters(),
+      excludeFromShutdownPolicy: scopeDraftExcludeFromShutdownPolicy.value
     }
   ];
 
   filters.value = { ...filters.value, scopeId };
   scopeDraftName.value = "";
   scopeDraftDescription.value = "";
+  scopeDraftExcludeFromShutdownPolicy.value = false;
 };
 
 const removeScope = (scopeId) => {
@@ -255,10 +326,10 @@ const removeScope = (scopeId) => {
           <OverviewView
             v-if="currentView === 'overview'"
             :summary-cards="summaryCards"
-            :policy="policy"
+            :policy="effectivePolicy"
+            :policy-summary="policySummary"
             :department-rows="departmentRows"
             :focus-rows="focusRows"
-            @update-policy="updatePolicy"
           />
 
           <ScopeManagerView
@@ -267,29 +338,37 @@ const removeScope = (scopeId) => {
             :filters="filters"
             :options="options"
             :active-scope-description="currentScopeDescription"
+            :policy="policy"
+            :policy-validation="policyValidation"
+            :policy-summary="policySummary"
             :scope-draft-name="scopeDraftName"
             :scope-draft-description="scopeDraftDescription"
+            :scope-draft-exclude-from-shutdown-policy="scopeDraftExcludeFromShutdownPolicy"
             :preview-rows="scopePreviewRows"
             :can-save-scope="canSaveScope"
             :nav-items="navItems"
             @update-draft-name="scopeDraftName = $event"
             @update-draft-description="scopeDraftDescription = $event"
+            @update-draft-exclude-from-shutdown-policy="scopeDraftExcludeFromShutdownPolicy = $event"
             @update-filter="updateFilter"
             @reset-filters="resetFilters"
             @save-scope="saveScope"
             @apply-scope="applyScope"
             @remove-scope="removeScope"
+            @update-policy="updatePolicy"
+            @reset-policy="resetPolicy"
             @select-view="setCurrentView"
           />
 
           <ReportsView
             v-else-if="currentView === 'reports'"
             :summary="reportSummary"
-            :department-rows="departmentRows"
+            :scope-summary-rows="scopeSummaryRows"
             :device-rows="scopePreviewRows"
             :filters="filters"
             :active-scope-name="activeScope?.name ?? '全部納管設備'"
-            :policy="policy"
+            :policy="effectivePolicy"
+            :policy-summary="policySummary"
           />
 
           <TrendView

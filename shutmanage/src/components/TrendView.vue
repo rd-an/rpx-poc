@@ -19,10 +19,14 @@ defineProps({
         用於觀察政策宣導後的關機率改善情形，同時追蹤未關機與自動觸發關機的月度變化。
       </p>
 
-      <div class="mt-4 grid gap-3 md:grid-cols-3">
+      <div class="mt-4 grid gap-3 md:grid-cols-4">
         <div class="report-kpi">
           <span>目前關機達成率</span>
           <strong>{{ summary.shutdownRate }}</strong>
+        </div>
+        <div class="report-kpi">
+          <span>目前群組排除數</span>
+          <strong>{{ summary.excludedByGroup }}</strong>
         </div>
         <div class="report-kpi">
           <span>目前未關機數</span>

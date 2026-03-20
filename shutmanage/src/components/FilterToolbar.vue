@@ -119,6 +119,7 @@ const updateField = (field, event) => {
           <option value="">全部</option>
           <option value="正常關機">正常關機</option>
           <option value="不可關機">不可關機</option>
+          <option value="群組排除">群組排除</option>
           <option value="加班後關機">加班後關機</option>
           <option value="未關機">未關機</option>
           <option value="已觸發關機">已觸發關機</option>

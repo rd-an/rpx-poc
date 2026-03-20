@@ -10,6 +10,10 @@ defineProps({
     type: Object,
     required: true
   },
+  policySummary: {
+    type: String,
+    required: true
+  },
   departmentRows: {
     type: Array,
     required: true
@@ -19,12 +23,6 @@ defineProps({
     required: true
   }
 });
-
-const emit = defineEmits(["update-policy"]);
-
-const updatePolicyField = (field, event) => {
-  emit("update-policy", { field, value: event.target.value });
-};
 </script>
 
 <template>
@@ -37,41 +35,47 @@ const updatePolicyField = (field, event) => {
           <h2 class="text-[14px] font-semibold text-[#4a5b6d]">政策判定基準</h2>
         </div>
 
-        <div class="grid gap-4 p-4 md:grid-cols-2 xl:grid-cols-4">
-          <label class="toolbar-field">
-            <span>正常上班時間</span>
-            <input :value="policy.workStart" type="time" @input="updatePolicyField('workStart', $event)" />
-          </label>
+        <div class="border-b border-[var(--border-soft)] bg-[#fbfcfe] px-4 py-3 text-[13px] text-[#5f7184]">
+          {{ policySummary }}
+        </div>
 
-          <label class="toolbar-field">
-            <span>下班時間</span>
-            <input :value="policy.workEnd" type="time" @input="updatePolicyField('workEnd', $event)" />
-          </label>
+        <div class="grid gap-4 p-4 md:grid-cols-3">
+          <div class="rounded border border-[var(--border-soft)] bg-[#fbfcfe] p-4">
+            <p class="text-[12px] font-semibold text-[#6f8092]">正常關機</p>
+            <p class="mt-2 text-[18px] font-semibold text-[#3f4b58]">{{ policy.normalShutdownStart }} - {{ policy.normalShutdownEnd }}</p>
+            <p class="mt-2 text-[12px] leading-5 text-[#627385]">落在此區間的關機紀錄視為正常完成。</p>
+          </div>
 
-          <label class="toolbar-field">
-            <span>夜間起始</span>
-            <input :value="policy.nightStart" type="time" @input="updatePolicyField('nightStart', $event)" />
-          </label>
+          <div class="rounded border border-[var(--border-soft)] bg-[#fbfcfe] p-4">
+            <p class="text-[12px] font-semibold text-[#6f8092]">加班後關機</p>
+            <p class="mt-2 text-[18px] font-semibold text-[#3f4b58]">{{ policy.overtimeShutdownStart }} - {{ policy.overtimeShutdownEnd }}</p>
+            <p class="mt-2 text-[12px] leading-5 text-[#627385]">代表延後作業後完成關機，仍可視為合規。</p>
+          </div>
 
-          <label class="toolbar-field">
-            <span>夜間截止</span>
-            <input :value="policy.nightEnd" type="time" @input="updatePolicyField('nightEnd', $event)" />
-          </label>
+          <div class="rounded border border-[var(--border-soft)] bg-[#fbfcfe] p-4">
+            <p class="text-[12px] font-semibold text-[#6f8092]">未關機</p>
+            <p class="mt-2 text-[18px] font-semibold text-[#3f4b58]">{{ policy.overtimeShutdownEnd }} 後</p>
+            <p class="mt-2 text-[12px] leading-5 text-[#627385]">逾時才關機或完全沒有關機紀錄，都會歸到未關機。</p>
+          </div>
         </div>
 
         <div class="grid gap-3 border-t border-[var(--border-soft)] bg-[#fbfcfe] px-4 py-4 text-[13px] text-[#617285] md:grid-cols-3">
           <div class="rounded border border-[var(--border-soft)] bg-white p-3">
             <p class="font-semibold text-[#405163]">正常關機判定</p>
-            <p class="mt-2">可關機設備於 {{ policy.workEnd }} 至 {{ policy.nightStart }} 前完成關機。</p>
+            <p class="mt-2">可關機設備在 {{ policy.normalShutdownStart }} 至 {{ policy.normalShutdownEnd }} 之間關機。</p>
           </div>
           <div class="rounded border border-[var(--border-soft)] bg-white p-3">
             <p class="font-semibold text-[#405163]">加班後關機判定</p>
-            <p class="mt-2">設備於夜間區間 {{ policy.nightStart }} ~ {{ policy.nightEnd }} 關機。</p>
+            <p class="mt-2">設備在 {{ policy.overtimeShutdownStart }} 至 {{ policy.overtimeShutdownEnd }} 之間關機。</p>
           </div>
           <div class="rounded border border-[var(--border-soft)] bg-white p-3">
             <p class="font-semibold text-[#405163]">未關機判定</p>
-            <p class="mt-2">可關機且已納管設備無關機紀錄，且未觸發政策關機。</p>
+            <p class="mt-2">超過 {{ policy.overtimeShutdownEnd }} 才關機或沒有關機紀錄，且未被政策自動觸發。</p>
           </div>
+        </div>
+
+        <div class="border-t border-[var(--border-soft)] bg-white px-4 py-3 text-[12px] text-[#6f7f90]">
+          規則編輯入口已集中到納管設定頁，避免總覽與設定頁出現兩套不同的判定來源。
         </div>
       </section>
 
@@ -123,6 +127,7 @@ const updatePolicyField = (field, event) => {
               <th class="table-head-cell">設備總數</th>
               <th class="table-head-cell">納管設備</th>
               <th class="table-head-cell">不可關機</th>
+              <th class="table-head-cell">群組排除</th>
               <th class="table-head-cell">正常關機</th>
               <th class="table-head-cell">加班後關機</th>
               <th class="table-head-cell">未關機</th>
@@ -135,6 +140,7 @@ const updatePolicyField = (field, event) => {
               <td class="table-body-cell">{{ row.total }}</td>
               <td class="table-body-cell">{{ row.managed }}</td>
               <td class="table-body-cell">{{ row.cannotShutdown }}</td>
+              <td class="table-body-cell">{{ row.excludedByGroup }}</td>
               <td class="table-body-cell">{{ row.normalShutdown }}</td>
               <td class="table-body-cell">{{ row.overtimeShutdown }}</td>
               <td class="table-body-cell">{{ row.unshutdown }}</td>

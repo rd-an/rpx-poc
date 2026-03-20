@@ -18,12 +18,28 @@ const props = defineProps({
     type: String,
     required: true
   },
+  policy: {
+    type: Object,
+    required: true
+  },
+  policyValidation: {
+    type: Object,
+    required: true
+  },
+  policySummary: {
+    type: String,
+    required: true
+  },
   scopeDraftName: {
     type: String,
     required: true
   },
   scopeDraftDescription: {
     type: String,
+    required: true
+  },
+  scopeDraftExcludeFromShutdownPolicy: {
+    type: Boolean,
     required: true
   },
   previewRows: {
@@ -43,11 +59,14 @@ const props = defineProps({
 const emit = defineEmits([
   "update-draft-name",
   "update-draft-description",
+  "update-draft-exclude-from-shutdown-policy",
   "update-filter",
   "reset-filters",
   "save-scope",
   "apply-scope",
   "remove-scope",
+  "update-policy",
+  "reset-policy",
   "select-view"
 ]);
 
@@ -56,6 +75,7 @@ const tableKeyword = ref("");
 const page = ref(1);
 const pageSize = ref(20);
 const collapsedGroups = ref(new Set());
+const showScopeComposer = ref(false);
 
 const updateField = (field, event) => {
   emit("update-filter", { field, value: event.target.value });
@@ -128,6 +148,32 @@ const rangeText = computed(() => {
   return `${start}-${end} / ${filteredRows.value.length}`;
 });
 
+const policyValidationMessages = computed(() => Object.values(props.policyValidation.errors));
+
+const policyPreviewCards = computed(() => {
+  const counts = props.previewRows.reduce(
+    (result, row) => {
+      result[row.derivedStatus] = (result[row.derivedStatus] || 0) + 1;
+      return result;
+    },
+    {
+      正常關機: 0,
+      加班後關機: 0,
+      群組排除: 0,
+      未關機: 0,
+      已觸發關機: 0
+    }
+  );
+
+  return [
+    { key: "正常關機", label: "正常關機", value: counts.正常關機, tone: "scope-policy-preview-card-green" },
+    { key: "加班後關機", label: "加班後關機", value: counts.加班後關機, tone: "scope-policy-preview-card-blue" },
+    { key: "群組排除", label: "群組排除", value: counts.群組排除, tone: "scope-policy-preview-card-slate" },
+    { key: "未關機", label: "未關機", value: counts.未關機, tone: "scope-policy-preview-card-amber" },
+    { key: "已觸發關機", label: "已觸發關機", value: counts.已觸發關機, tone: "scope-policy-preview-card-pink" }
+  ];
+});
+
 const goPrev = () => {
   page.value = Math.max(1, page.value - 1);
 };
@@ -136,9 +182,32 @@ const goNext = () => {
   page.value = Math.min(totalPages.value, page.value + 1);
 };
 
+const updatePolicyField = (field, event) => {
+  emit("update-policy", { field, value: event.target.value });
+};
+
+const updateScopeExcludeFlag = (event) => {
+  emit("update-draft-exclude-from-shutdown-policy", event.target.checked);
+};
+
+const openScopeComposer = () => {
+  showScopeComposer.value = true;
+};
+
+const closeScopeComposer = () => {
+  showScopeComposer.value = false;
+};
+
+const saveScopeDraft = () => {
+  if (!props.canSaveScope) return;
+  emit("save-scope");
+  closeScopeComposer();
+};
+
 const statusDotClass = (status) => {
   if (status === "正常關機") return "scope-dot scope-dot-green";
   if (status === "加班後關機") return "scope-dot scope-dot-blue";
+  if (status === "群組排除") return "scope-dot scope-dot-slate";
   if (status === "未關機") return "scope-dot scope-dot-amber";
   if (status === "已觸發關機") return "scope-dot scope-dot-pink";
   return "scope-dot scope-dot-gray";
@@ -214,7 +283,10 @@ const formatUptime = (device) => {
                 @click="emit('apply-scope', scope.id)"
               >
                 <span class="scope-tree-node-text">{{ scope.name }}</span>
-                <span v-if="scope.id === 'all'" class="scope-chip">預設</span>
+                <div class="scope-tree-node-tags">
+                  <span v-if="scope.excludeFromShutdownPolicy" class="scope-chip scope-chip-muted">免關機</span>
+                  <span v-if="scope.id === 'all'" class="scope-chip">預設</span>
+                </div>
               </button>
             </li>
           </ul>
@@ -222,7 +294,7 @@ const formatUptime = (device) => {
       </div>
 
       <div class="scope-tree-footer">
-        <button class="scope-primary-btn" type="button" :disabled="!canSaveScope" @click="emit('save-scope')">
+        <button class="scope-primary-btn" type="button" @click="openScopeComposer">
           ＋ 新增群組
         </button>
       </div>
@@ -267,34 +339,69 @@ const formatUptime = (device) => {
             </select>
           </label>
 
-          <button class="scope-deploy-btn" type="button">部署</button>
+          <button class="scope-deploy-btn" type="button" :disabled="!policyValidation.isValid" title="規則有效後才能部署">
+            部署
+          </button>
         </div>
       </div>
+
+      <section class="scope-policy-panel">
+        <div class="scope-policy-header">
+          <div>
+            <h3>關機狀態規則</h3>
+            <p>全域共用規則，調整後會立即重算目前清單、總覽與報表結果。</p>
+          </div>
+
+          <button class="scope-secondary-btn" type="button" @click="emit('reset-policy')">還原預設</button>
+        </div>
+
+        <div class="scope-policy-grid">
+          <label class="toolbar-field">
+            <span>正常關機開始</span>
+            <input :value="policy.normalShutdownStart" type="time" @input="updatePolicyField('normalShutdownStart', $event)" />
+          </label>
+
+          <label class="toolbar-field">
+            <span>正常關機結束</span>
+            <input :value="policy.normalShutdownEnd" type="time" @input="updatePolicyField('normalShutdownEnd', $event)" />
+          </label>
+
+          <label class="toolbar-field">
+            <span>加班關機開始</span>
+            <input :value="policy.overtimeShutdownStart" type="time" @input="updatePolicyField('overtimeShutdownStart', $event)" />
+          </label>
+
+          <label class="toolbar-field">
+            <span>加班關機截止</span>
+            <input :value="policy.overtimeShutdownEnd" type="time" @input="updatePolicyField('overtimeShutdownEnd', $event)" />
+          </label>
+
+          <div class="scope-policy-cutoff">
+            <strong>未關機判定</strong>
+            <p>{{ policy.overtimeShutdownEnd }} 後關機，或完全沒有關機紀錄。</p>
+          </div>
+        </div>
+
+        <div class="scope-policy-summary">
+          <strong>目前規則：</strong>
+          <span>{{ policySummary }}</span>
+        </div>
+
+        <div v-if="policyValidationMessages.length" class="scope-policy-errors">
+          <p v-for="message in policyValidationMessages" :key="message">{{ message }}</p>
+        </div>
+
+        <div class="scope-policy-preview">
+          <article v-for="item in policyPreviewCards" :key="item.key" class="scope-policy-preview-card" :class="item.tone">
+            <span>{{ item.label }}</span>
+            <strong>{{ item.value }}</strong>
+          </article>
+        </div>
+      </section>
 
       <div class="scope-active-criteria">
         <strong>作用中群組條件：</strong>
         <span>{{ activeScopeDescription }}</span>
-      </div>
-
-      <div class="scope-save-form">
-        <label class="toolbar-field">
-          <span>群組名稱</span>
-          <input
-            :value="scopeDraftName"
-            type="text"
-            placeholder="例如：行政白班設備"
-            @input="emit('update-draft-name', $event.target.value)"
-          />
-        </label>
-        <label class="toolbar-field">
-          <span>用途說明</span>
-          <input
-            :value="scopeDraftDescription"
-            type="text"
-            placeholder="例如：追蹤行政處下班未關機設備"
-            @input="emit('update-draft-description', $event.target.value)"
-          />
-        </label>
       </div>
 
       <div class="scope-table-wrap">
@@ -305,7 +412,7 @@ const formatUptime = (device) => {
                 <th class="table-head-cell">項次</th>
                 <th class="table-head-cell">編號</th>
                 <th class="table-head-cell">電腦名稱</th>
-                <th class="table-head-cell">在線</th>
+                <th class="table-head-cell">狀態</th>
                 <th class="table-head-cell">群組路徑</th>
                 <th class="table-head-cell">使用者帳號</th>
                 <th class="table-head-cell">開機時間</th>
@@ -320,7 +427,10 @@ const formatUptime = (device) => {
                 <td class="table-body-cell">{{ device.inventoryId }}</td>
                 <td class="table-body-cell font-medium">{{ device.hostname }}</td>
                 <td class="table-body-cell">
-                  <span :class="statusDotClass(device.derivedStatus)"></span>
+                  <div class="scope-status-cell">
+                    <span :class="statusDotClass(device.derivedStatus)"></span>
+                    <span class="scope-status-text">{{ device.derivedStatus }}</span>
+                  </div>
                 </td>
                 <td class="table-body-cell">{{ device.department }} / {{ device.unit }}</td>
                 <td class="table-body-cell">{{ device.assetTag }}</td>
@@ -358,6 +468,61 @@ const formatUptime = (device) => {
 
           <span>{{ rangeText }}</span>
         </footer>
+      </div>
+
+      <div v-if="showScopeComposer" class="scope-composer-backdrop" @click.self="closeScopeComposer">
+        <section class="scope-composer-card">
+          <div class="scope-composer-header">
+            <div>
+              <h3>新增納管群組</h3>
+              <p>使用目前篩選條件建立群組，並可指定是否排除在關機政策之外。</p>
+            </div>
+
+            <button class="scope-composer-close" type="button" @click="closeScopeComposer">✕</button>
+          </div>
+
+          <div class="scope-composer-grid">
+            <label class="toolbar-field">
+              <span>群組名稱</span>
+              <input
+                :value="scopeDraftName"
+                type="text"
+                placeholder="例如：行政白班設備"
+                @input="emit('update-draft-name', $event.target.value)"
+              />
+            </label>
+
+            <label class="toolbar-field">
+              <span>用途說明</span>
+              <input
+                :value="scopeDraftDescription"
+                type="text"
+                placeholder="例如：不列入下班關機稽核的醫療特殊設備"
+                @input="emit('update-draft-description', $event.target.value)"
+              />
+            </label>
+          </div>
+
+          <div class="scope-composer-summary">
+            <strong>目前條件</strong>
+            <p>{{ activeScopeDescription }}</p>
+          </div>
+
+          <label class="scope-flag-toggle">
+            <input :checked="scopeDraftExcludeFromShutdownPolicy" type="checkbox" @change="updateScopeExcludeFlag" />
+            <div>
+              <strong>此群組不套用關機政策</strong>
+              <p>群組內設備仍屬納管，但會自正常關機、加班關機、未關機 KPI 中排除。</p>
+            </div>
+          </label>
+
+          <div class="scope-composer-actions">
+            <button class="scope-secondary-btn" type="button" @click="closeScopeComposer">取消</button>
+            <button class="scope-primary-btn scope-primary-btn-inline" type="button" :disabled="!canSaveScope" @click="saveScopeDraft">
+              建立群組
+            </button>
+          </div>
+        </section>
       </div>
     </section>
   </div>

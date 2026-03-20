@@ -1,13 +1,13 @@
 <script setup>
-import { ref } from "vue";
-import { exportAuditCsv, exportAuditExcel, exportAuditPdf } from "../utils/reportUtils";
+import { onBeforeUnmount, onMounted, ref } from "vue";
+import { exportDetailReport, exportSummaryReport } from "../utils/reportUtils";
 
 const props = defineProps({
   summary: {
     type: Object,
     required: true
   },
-  departmentRows: {
+  scopeSummaryRows: {
     type: Array,
     required: true
   },
@@ -26,11 +26,16 @@ const props = defineProps({
   policy: {
     type: Object,
     required: true
+  },
+  policySummary: {
+    type: String,
+    required: true
   }
 });
 
 const reportRef = ref(null);
-const exportingPdf = ref(false);
+const exportMenuRef = ref(null);
+const exportMenuOpen = ref(false);
 
 const reportMeta = () => ({
   auditDate: props.filters.auditDate,
@@ -38,17 +43,37 @@ const reportMeta = () => ({
   policy: props.policy
 });
 
-const handlePdfExport = async () => {
-  if (!reportRef.value || exportingPdf.value) return;
+const closeExportMenu = () => {
+  exportMenuOpen.value = false;
+};
 
-  exportingPdf.value = true;
+const toggleExportMenu = () => {
+  exportMenuOpen.value = !exportMenuOpen.value;
+};
 
-  try {
-    await exportAuditPdf(reportRef.value, reportMeta());
-  } finally {
-    exportingPdf.value = false;
+const handleExportSummary = () => {
+  exportSummaryReport(props.summary, props.scopeSummaryRows, reportMeta());
+  closeExportMenu();
+};
+
+const handleExportDetail = () => {
+  exportDetailReport(props.deviceRows, reportMeta());
+  closeExportMenu();
+};
+
+const handleClickOutside = (event) => {
+  if (!exportMenuRef.value?.contains(event.target)) {
+    closeExportMenu();
   }
 };
+
+onMounted(() => {
+  document.addEventListener("click", handleClickOutside);
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener("click", handleClickOutside);
+});
 </script>
 
 <template>
@@ -57,30 +82,20 @@ const handlePdfExport = async () => {
       <div>
         <h2 class="text-[18px] font-semibold text-[#3f4b58]">稽核報表</h2>
         <p class="mt-1 text-[13px] leading-6 text-[#667384]">
-          提供整體彙總、部門明細與設備明細，並支援 CSV、Excel、PDF 正式檔案輸出。
+          提供全部納管與各納管群組總計表，以及依目前列表內容匯出的詳細清單。
         </p>
       </div>
 
-      <div class="flex flex-wrap gap-2">
-        <button
-          class="h-8 rounded bg-[var(--btn-blue)] px-4 text-[12px] font-semibold text-white"
-          @click="exportAuditCsv(deviceRows, reportMeta())"
-        >
-          匯出 CSV
+      <div ref="exportMenuRef" class="report-export-menu">
+        <button class="report-export-trigger" type="button" @click.stop="toggleExportMenu">
+          匯出報表
+          <span>{{ exportMenuOpen ? "▴" : "▾" }}</span>
         </button>
-        <button
-          class="h-8 rounded bg-[var(--btn-green)] px-4 text-[12px] font-semibold text-white"
-          @click="exportAuditExcel(summary, departmentRows, deviceRows, reportMeta())"
-        >
-          匯出 Excel
-        </button>
-        <button
-          class="h-8 rounded bg-[var(--btn-pink)] px-4 text-[12px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
-          :disabled="exportingPdf"
-          @click="handlePdfExport"
-        >
-          {{ exportingPdf ? "PDF 產製中..." : "匯出 PDF" }}
-        </button>
+
+        <div v-if="exportMenuOpen" class="report-export-dropdown">
+          <button type="button" @click="handleExportSummary">匯出稽核總計表</button>
+          <button type="button" @click="handleExportDetail">匯出詳細清單</button>
+        </div>
       </div>
     </header>
 
@@ -89,10 +104,10 @@ const handlePdfExport = async () => {
         <div class="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
             <h3 class="text-[20px] font-semibold text-[#3f4b58]">院內電腦關機稽核報表</h3>
-            <p class="mt-1 text-[13px] text-[#6b7b8c]">稽核日期：{{ filters.auditDate }} ｜ 作用中群組：{{ activeScopeName }}</p>
+            <p class="mt-1 text-[13px] text-[#6b7b8c]">稽核日期：{{ filters.auditDate }} ｜ 詳細清單作用中群組：{{ activeScopeName }}</p>
           </div>
           <div class="rounded border border-[var(--border-soft)] bg-[#f8fbff] px-4 py-3 text-[12px] text-[#607082]">
-            判定基準：下班 {{ policy.workEnd }} / 夜間 {{ policy.nightStart }} ~ {{ policy.nightEnd }}
+            判定基準：{{ policySummary }}
           </div>
         </div>
       </div>
@@ -105,6 +120,10 @@ const handlePdfExport = async () => {
         <div class="report-kpi">
           <span>納管設備數</span>
           <strong>{{ summary.managedDevices }}</strong>
+        </div>
+        <div class="report-kpi">
+          <span>群組排除數</span>
+          <strong>{{ summary.excludedByGroup }}</strong>
         </div>
         <div class="report-kpi">
           <span>應關機未關機</span>
@@ -129,7 +148,7 @@ const handlePdfExport = async () => {
             <tr class="h-11">
               <td class="table-body-cell font-medium">正常關機</td>
               <td class="table-body-cell">{{ summary.normalShutdown }}</td>
-              <td class="table-body-cell">於下班後、夜間起始前完成關機</td>
+              <td class="table-body-cell">於 {{ policy.normalShutdownStart }} 至 {{ policy.normalShutdownEnd }} 之間完成關機</td>
             </tr>
             <tr class="h-11">
               <td class="table-body-cell font-medium">不可關機</td>
@@ -137,14 +156,19 @@ const handlePdfExport = async () => {
               <td class="table-body-cell">ICU、臨床或特殊用途設備，不納入一般關機政策</td>
             </tr>
             <tr class="h-11">
+              <td class="table-body-cell font-medium">群組排除</td>
+              <td class="table-body-cell">{{ summary.excludedByGroup }}</td>
+              <td class="table-body-cell">屬於納管範圍，但依群組旗標排除在關機 KPI 外</td>
+            </tr>
+            <tr class="h-11">
               <td class="table-body-cell font-medium">加班後關機</td>
               <td class="table-body-cell">{{ summary.overtimeShutdown }}</td>
-              <td class="table-body-cell">於夜間判定區間內關機</td>
+              <td class="table-body-cell">於 {{ policy.overtimeShutdownStart }} 至 {{ policy.overtimeShutdownEnd }} 之間關機</td>
             </tr>
             <tr class="h-11">
               <td class="table-body-cell font-medium">未關機</td>
               <td class="table-body-cell">{{ summary.unshutdown }}</td>
-              <td class="table-body-cell">可關機設備無關機紀錄，且未被政策自動觸發</td>
+              <td class="table-body-cell">超過 {{ policy.overtimeShutdownEnd }} 才關機或沒有關機紀錄，且未被政策自動觸發</td>
             </tr>
           </tbody>
         </table>
@@ -154,26 +178,30 @@ const handlePdfExport = async () => {
         <table class="w-full text-left text-[13px] text-[#4f5b67]">
           <thead class="bg-[#f8fafc] text-[#6e7d8d]">
             <tr>
-              <th class="table-head-cell">部門</th>
-              <th class="table-head-cell">設備總數</th>
+              <th class="table-head-cell">納管群組</th>
+              <th class="table-head-cell">例外群組</th>
               <th class="table-head-cell">納管</th>
               <th class="table-head-cell">正常關機</th>
               <th class="table-head-cell">不可關機</th>
+              <th class="table-head-cell">群組排除</th>
               <th class="table-head-cell">加班後關機</th>
               <th class="table-head-cell">未關機</th>
               <th class="table-head-cell">觸發關機</th>
+              <th class="table-head-cell">關機率</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="row in departmentRows" :key="row.department" class="h-11">
-              <td class="table-body-cell font-medium">{{ row.department }}</td>
-              <td class="table-body-cell">{{ row.total }}</td>
+            <tr v-for="row in scopeSummaryRows" :key="row.scopeId" class="h-11">
+              <td class="table-body-cell font-medium">{{ row.scopeName }}</td>
+              <td class="table-body-cell">{{ row.excludeFromShutdownPolicy ? "是" : "否" }}</td>
               <td class="table-body-cell">{{ row.managed }}</td>
               <td class="table-body-cell">{{ row.normalShutdown }}</td>
               <td class="table-body-cell">{{ row.cannotShutdown }}</td>
+              <td class="table-body-cell">{{ row.excludedByGroup }}</td>
               <td class="table-body-cell">{{ row.overtimeShutdown }}</td>
               <td class="table-body-cell">{{ row.unshutdown }}</td>
               <td class="table-body-cell">{{ row.triggered }}</td>
+              <td class="table-body-cell">{{ row.shutdownRate }}</td>
             </tr>
           </tbody>
         </table>
@@ -185,10 +213,12 @@ const handlePdfExport = async () => {
             <tr>
               <th class="table-head-cell">電腦名稱</th>
               <th class="table-head-cell">資產編號</th>
+              <th class="table-head-cell">納管群組</th>
               <th class="table-head-cell">部門 / 單位</th>
               <th class="table-head-cell">開機時間</th>
               <th class="table-head-cell">關機時間</th>
               <th class="table-head-cell">狀態</th>
+              <th class="table-head-cell">群組排除</th>
               <th class="table-head-cell">觸發結果</th>
             </tr>
           </thead>
@@ -196,10 +226,12 @@ const handlePdfExport = async () => {
             <tr v-for="device in deviceRows" :key="device.id" class="h-11">
               <td class="table-body-cell font-medium">{{ device.hostname }}</td>
               <td class="table-body-cell">{{ device.assetTag }}</td>
+              <td class="table-body-cell">{{ device.groupName }}</td>
               <td class="table-body-cell">{{ device.department }} / {{ device.unit }}</td>
               <td class="table-body-cell">{{ device.bootAt }}</td>
               <td class="table-body-cell">{{ device.shutdownAt || "—" }}</td>
               <td class="table-body-cell">{{ device.derivedStatus }}</td>
+              <td class="table-body-cell">{{ device.excludedByGroup ? "是" : "否" }}</td>
               <td class="table-body-cell">{{ device.triggeredShutdownAt ? `已於 ${device.triggeredShutdownAt} 觸發` : "未觸發" }}</td>
             </tr>
           </tbody>
